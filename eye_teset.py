@@ -39,6 +39,8 @@ while True:
 
     # Debug: Print raw model output
     print(results)
+    
+    frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
 
     # Use only the top prediction (highest confidence)
     if results:
