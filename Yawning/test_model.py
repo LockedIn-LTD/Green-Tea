@@ -67,7 +67,7 @@ EAR_THRESHOLD = 0.26
 
 # Open video stream
 gst_str = ("nvarguscamerasrc sensor-id=0 ! "
-           "video/x-raw(memory:NVMM), width=(int)1280, height=(int)720, framerate=(fraction)30/1 ! "
+           "video/x-raw(memory:NVMM), width=(int)1280, height=(int)720, framerate=(fraction)60/1 ! "
            "nvvidconv ! "
            "video/x-raw, format=(string)BGRx ! "
            "videoconvert ! video/x-raw, format=(string)BGR ! "
