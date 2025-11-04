@@ -1,3 +1,4 @@
+import os
 import torch
 import torch.nn as nn
 import cv2
@@ -34,9 +35,14 @@ def eye_aspect_ratio(eye):
     ear = (A + B) / (2.0 * C)
     return ear
 
-# Load the trained yawn detection model (on CPU)
+# Load the trained yawn detection model (on GPU if available)
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(device)
+
 model = YawnCNN()
-model.load_state_dict(torch.load('yawn_detection.pth', map_location=torch.device('cpu')))
+model_path = os.path.expanduser('~/Desktop/Green-Tea/Yawning/yawn_detection.pth')
+model.load_state_dict(torch.load(model_path, map_location=device))
+model.to(device)
 model.eval()
 
 # Transformation to match input format for yawn detection
@@ -48,7 +54,8 @@ transform = transforms.Compose([
 
 # Initialize dlib's face detector and landmark predictor
 detector = dlib.get_frontal_face_detector()
-predictor = dlib.shape_predictor("shape_predictor_68_face_landmarks.dat")
+landmarks_path = os.path.expanduser('~/Desktop/Green-Tea/Yawning/shape_predictor_68_face_landmarks.dat')
+predictor = dlib.shape_predictor(landmarks_path)
 
 # Define the indices for eyes and mouth
 left_eye_indices = list(range(36, 42))
@@ -59,7 +66,20 @@ mouth_indices = list(range(48, 68))
 EAR_THRESHOLD = 0.26
 
 # Open video stream
-cap = cv2.VideoCapture(0)
+gst_str = ("nvarguscamerasrc sensor-id=0 ! "
+           "video/x-raw(memory:NVMM), width=(int)1280, height=(int)720, framerate=(fraction)30/1 ! "
+           "nvvidconv ! "
+           "video/x-raw, format=(string)BGRx ! "
+           "videoconvert ! video/x-raw, format=(string)BGR ! "
+           "appsink drop=true")
+
+print(f"Gstreamer pipeline: {gst_str}")
+
+cap = cv2.VideoCapture(gst_str, cv2.CAP_GSTREAMER)
+
+if not cap.isOpened():
+    print("Error: Could not open camera.")
+    exit()
 
 # Define colors
 GREEN = (0, 255, 0)
@@ -126,9 +146,14 @@ while True:
         # Yawn detection
         if mouth_roi.size > 0:
             try:
-                input_image = cv2.cvtColor(mouth_roi, cv2.COLOR_BGR2RGB)
-                input_image = Image.fromarray(input_image)
-                input_tensor = transform(input_image).unsqueeze(0)
+                # Convert mouth_roi to CUDA if available
+                mouth_roi_cuda = cv2.cuda_GpuMat()
+                mouth_roi_cuda.upload(mouth_roi)
+                mouth_roi_rgb = cv2.cuda.cvtColor(mouth_roi_cuda, cv2.COLOR_BGR2RGB)
+                mouth_roi_cpu = mouth_roi_rgb.download()
+
+                input_image = Image.fromarray(mouth_roi_cpu)
+                input_tensor = transform(input_image).unsqueeze(0).to(device)
                 
                 with torch.no_grad():
                     output = model(input_tensor)
@@ -163,5 +188,6 @@ while True:
     if cv2.waitKey(1) & 0xFF == ord('q'):
         break
 
+    # Release resources
 cap.release()
 cv2.destroyAllWindows()
