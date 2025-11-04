@@ -3,6 +3,36 @@ import cv2
 import numpy as np
 from PIL import Image  # Import PIL for image conversion
 
+
+
+def gstreamer_pipeline(
+    sensor_id=0,
+    capture_width=1920,
+    capture_height=1080,
+    display_width=960,
+    display_height=540,
+    framerate=30,
+    flip_method=0,
+):
+    return (
+        "nvarguscamerasrc sensor-id=%d ! "
+        "video/x-raw(memory:NVMM), width=(int)%d, height=(int)%d, framerate=(fraction)%d/1 ! "
+        "nvvidconv flip-method=%d ! "
+        "video/x-raw, width=(int)%d, height=(int)%d, format=(string)BGRx ! "
+        "videoconvert ! "
+        "video/x-raw, format=(string)BGR ! appsink"
+        % (
+            sensor_id,
+            capture_width,
+            capture_height,
+            framerate,
+            flip_method,
+            display_width,
+            display_height,
+        )
+    )
+
+
 # Load the pre-trained eye state classification model from Hugging Face
 eye_state_pipeline = pipeline(model="MichalMlodawski/open-closed-eye-classification-mobilev2")
 
@@ -13,7 +43,8 @@ label_mapping = {
 }
 
 # Open the webcam (use 0 for the default webcam)
-cap = cv2.VideoCapture(0)
+print(gstreamer_pipeline(flip_method=0))
+cap = cv2.VideoCapture(gstreamer_pipeline(flip_method=0), cv2.CAP_GSTREAMER)
 
 if not cap.isOpened():
     print("Error: Unable to open webcam.")
@@ -54,11 +85,12 @@ while True:
 
         # Display the eye state and confidence score
         text = f"Eye State: {eye_state} ({confidence:.2f})"
-        cv2.putText(frame, text, (10, 30),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+        print(text)
+        # cv2.putText(frame, text, (10, 30),
+        #             cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
 
     # Display the output frame
-    cv2.imshow("Eye State Detection", frame)
+    #cv2.imshow("Eye State Detection", frame)
 
     # Exit on 'q' key press
     if cv2.waitKey(frame_delay) & 0xFF == ord('q'):
