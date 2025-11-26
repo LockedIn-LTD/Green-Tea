@@ -5,7 +5,8 @@ from collections import deque
 import torch
 from ultralytics import YOLO
 from zmq_video_client import ZMQVideoReceiver
-
+from data_publisher import DataPublisher
+from upload_image import upload_image_to_firebase
 # ================================
 # CONFIG & MODEL SETUP
 # ================================
@@ -24,7 +25,10 @@ CAFFE_MODEL_PATH = "res10_300x300_ssd_iter_140000.caffemodel"
 DNN_CONFIDENCE_THRESHOLD = 0.5 # Minimum confidence for a face detection
 
 # --- PYTORCH SETUP ---
-DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
+DEVICE = 'mps' if torch.cuda.is_available() else 'cpu'
+
+# --- DATA PUBLISHER SETUP ---
+data_publisher = None
 
 # Load the YOLO model
 try:
@@ -32,6 +36,7 @@ try:
     yolo_model.to(DEVICE)
     yolo_model.eval() # Set model to evaluation mode
     print(f"Loaded YOLO model {MODEL_PATH} onto {DEVICE}")
+    setup_data_publisher()
 except Exception as e:
     print(f"Error loading PyTorch model: {e}")
     exit()
@@ -171,6 +176,22 @@ def extract_focused_face(frame, net, width=300, height=300, confidence_threshold
 
 
 # ================================
+# DATA PUBLISHER FUNCTIONS
+# ================================
+
+def setup_data_publisher():
+    global data_publisher
+    data_publisher = DataPublisher(port=5556, topic='model_out')
+
+def publish_status(image="", status="", confidence=0.0):
+    if data_publisher:
+        #push image to firebase bucket and it returns the URL
+        # url = push_image_to_firebase(image)
+        data_publisher.publish(image=url, status=status, confidence=confidence)
+    else:
+        print("Data publisher not initialized.")
+
+# ================================
 # PYTORCH INFERENCE
 # ================================
 @torch.no_grad()
@@ -245,11 +266,16 @@ def run():
         recent_fatigues = pred_history.count("yawn")
 
         if recent_fatigues >= CLOSED_FRAME_THRESHOLD:
-            status = "🚨 FATIGUE DETECTED 🚨"
+            status = "FATIGUE"
             color = (0, 0, 255) # Red
+            fatigue_frame = frame.copy()
+            cv2.imwrite("fatigue.jpg", fatigue_frame)
+            image_meta = upload_image_to_firebase("firebase_key.json", "drivesense-c1d4c.firebasestorage.app", "fatigue.jpg")    
+            publish_status(image=image_meta["gs_uri"], status=status, confidence=conf)
         else:
             status = "Alert"
             color = (0, 255, 0) # Green
+            publish_status(status=status, confidence=conf)
         
         # Calculate FPS
         fps = 1.0 / (time.time() - t0)
