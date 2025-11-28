@@ -6,7 +6,7 @@ import torch
 from ultralytics import YOLO
 from zmq_video_client import ZMQVideoReceiver
 from data_publisher import DataPublisher
-from upload_image import upload_image_to_firebase
+
 # ================================
 # CONFIG & MODEL SETUP
 # ================================
@@ -25,7 +25,7 @@ CAFFE_MODEL_PATH = "res10_300x300_ssd_iter_140000.caffemodel"
 DNN_CONFIDENCE_THRESHOLD = 0.5 # Minimum confidence for a face detection
 
 # --- PYTORCH SETUP ---
-DEVICE = 'mps' if torch.cuda.is_available() else 'cpu'
+DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 # --- DATA PUBLISHER SETUP ---
 data_publisher = None
@@ -36,7 +36,6 @@ try:
     yolo_model.to(DEVICE)
     yolo_model.eval() # Set model to evaluation mode
     print(f"Loaded YOLO model {MODEL_PATH} onto {DEVICE}")
-    setup_data_publisher()
 except Exception as e:
     print(f"Error loading PyTorch model: {e}")
     exit()
@@ -73,20 +72,6 @@ except Exception as e:
 # ================================
 # CAMERA SETUP FOR JETSON NANO
 # ================================
-"""
-def gst_pipeline(sensor_id, width, height, fps=15, flip=2): 
-    return (
-        f"nvarguscamerasrc sensor-id={int(sensor_id)} "
-        f"bufapi-version=1 ! "
-        f"video/x-raw(memory:NVMM), width=(int){int(width)}, height=(int){int(height)}, "
-        f"framerate=(fraction){int(fps)}/1, format=(string)NV12 ! "
-        f"nvvidconv flip-method={int(flip)} ! "
-        f"video/x-raw, format=(string)BGRx, width=(int){int(width)}, height=(int){int(height)} ! "
-        f"videoconvert ! "
-        f"appsink caps=video/x-raw,format=(string)BGR,width=(int){int(width)},height=(int){int(height)} "
-        f"drop=true max-buffers=1 sync=false"
-    )
-"""
 def open_camera():
     #pipeline = gst_pipeline(0, 1280, 720, 15, 2) 
     cap = cap = ZMQVideoReceiver(address=ZMQ_ADDRESS)
@@ -174,23 +159,6 @@ def extract_focused_face(frame, net, width=300, height=300, confidence_threshold
     
     return rgb_resized, best_box
 
-
-# ================================
-# DATA PUBLISHER FUNCTIONS
-# ================================
-
-def setup_data_publisher():
-    global data_publisher
-    data_publisher = DataPublisher(port=5556, topic='model_out')
-
-def publish_status(image="", status="", confidence=0.0):
-    if data_publisher:
-        #push image to firebase bucket and it returns the URL
-        # url = push_image_to_firebase(image)
-        data_publisher.publish(image=url, status=status, confidence=confidence)
-    else:
-        print("Data publisher not initialized.")
-
 # ================================
 # PYTORCH INFERENCE
 # ================================
@@ -231,6 +199,8 @@ def run():
         if not ret:
             continue
         
+        frame = frame.copy()
+        
         # Clean up 4-channel input if necessary
         if frame is not None and len(frame.shape) == 3 and frame.shape[2] == 4:
             frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
@@ -268,14 +238,15 @@ def run():
         if recent_fatigues >= CLOSED_FRAME_THRESHOLD:
             status = "FATIGUE"
             color = (0, 0, 255) # Red
-            fatigue_frame = frame.copy()
-            cv2.imwrite("fatigue.jpg", fatigue_frame)
-            image_meta = upload_image_to_firebase("firebase_key.json", "drivesense-c1d4c.firebasestorage.app", "fatigue.jpg")    
-            publish_status(image=image_meta["gs_uri"], status=status, confidence=conf)
+            # fatigue_frame = frame.copy() # Removed: Copying frame for saving
+            # cv2.imwrite("fatigue.jpg", fatigue_frame) # Removed: Saving image to disk
+            # image_meta = upload_image_to_firebase("firebase_admin.json", "drivesense-c1d4c.firebasestorage.app", "fatigue.jpg") # Removed: Firebase upload
+            print("Status published: FATIGUE")
+            
         else:
             status = "Alert"
             color = (0, 255, 0) # Green
-            publish_status(status=status, confidence=conf)
+            print("Status published: Alert")
         
         # Calculate FPS
         fps = 1.0 / (time.time() - t0)

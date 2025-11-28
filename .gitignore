@@ -1,3 +1,4 @@
+firebase_admin.json
 *.engine
 *.pt
 # Byte-compiled / optimized / DLL files
